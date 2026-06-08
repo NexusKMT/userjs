@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      2.3.0
+// @version      2.4.0
 // @description  Opt-in userscript with a visible control panel that disables costly page animations, Web Animations API effects, blur effects, decorative canvas, and RAF loops on allowlisted sites.
 // @match        http://*/*
 // @match        https://*/*
 // @run-at       document-start
 // @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -603,6 +604,8 @@
 
   let panelOpen = false;
   let panelRefreshTimer = 0;
+  let menuCommandIds = [];
+  let menusRegistered = false;
 
   const MODES = {
     off: {
@@ -2276,54 +2279,122 @@
 
   function registerMenu(label, action) {
     if (typeof GM_registerMenuCommand === "function") {
-      GM_registerMenuCommand(label, action);
+      const id = GM_registerMenuCommand(label, action);
+      if (id !== null && typeof id !== "undefined") {
+        menuCommandIds.push(id);
+      }
     }
+  }
+
+  function unregisterMenus() {
+    if (typeof GM_unregisterMenuCommand !== "function") return false;
+
+    for (const id of menuCommandIds) {
+      try {
+        GM_unregisterMenuCommand(id);
+      } catch (error) {
+        console.warn("[Universal Force Lite] GM_unregisterMenuCommand failed", error);
+      }
+    }
+
+    menuCommandIds = [];
+    menusRegistered = false;
+    return true;
+  }
+
+  function refreshMenus() {
+    if (menusRegistered && !unregisterMenus()) return;
+    registerMenus();
+  }
+
+  function runMenuAction(action) {
+    try {
+      action();
+    } finally {
+      refreshMenus();
+      queuePanelRefresh();
+    }
+  }
+
+  function menuState(value) {
+    return value ? "ON" : "OFF";
+  }
+
+  function menuFeatureLabel(feature) {
+    const nextAction = feature.enabled ? "turn OFF" : "turn ON";
+    const custom = feature.override === null ? "" : " [custom]";
+    return `Universal Force Lite: [${menuState(feature.enabled)}] ${feature.label} (${feature.name}) - click to ${nextAction}${custom}`;
+  }
+
+  function menuModeLabel(modeName) {
+    const active = getModeName() === modeName;
+    return `Universal Force Lite: [${active ? "ACTIVE" : "----"}] mode ${modeName}`;
+  }
+
+  function menuHostLabel() {
+    return `Universal Force Lite: [${hostAllowed() ? "ON" : "OFF"}] this host allowlist`;
   }
 
   function reinstallCurrentMode() {
     install(getModeName());
   }
 
-  installPanel();
-  install();
+  function registerMenus() {
+    if (typeof GM_registerMenuCommand !== "function") return;
+    if (menusRegistered && typeof GM_unregisterMenuCommand !== "function") return;
 
-  registerMenu("Universal Force Lite: stats", () => {
-    console.table(PAGE[GLOBAL_KEY]?.stats?.() || {});
-  });
-  registerMenu("Universal Force Lite: list features", () => {
-    console.table(getFeatureList());
-  });
-  registerMenu("Universal Force Lite: allow this host", () => {
-    addAllowedHost(currentHost());
-    reinstallCurrentMode();
-  });
-  registerMenu("Universal Force Lite: remove this host", () => {
-    removeAllowedHost(currentHost());
-    PAGE[GLOBAL_KEY]?.restore?.();
-    reinstallCurrentMode();
-  });
-  registerMenu("Universal Force Lite: list allowlist", () => {
-    console.table(getAllowlist().map((host) => ({ host })));
-  });
+    menusRegistered = true;
 
-  for (const modeName of Object.keys(MODES)) {
-    registerMenu(`Universal Force Lite: mode ${modeName}`, () => {
-      setModeName(modeName);
-      install(modeName);
+    registerMenu("Universal Force Lite: stats", () => {
+      console.table(PAGE[GLOBAL_KEY]?.stats?.() || {});
     });
-  }
-
-  for (const featureName of FEATURE_ORDER) {
-    registerMenu(`Universal Force Lite: toggle ${featureName}`, () => {
-      toggleFeatureOverride(featureName);
-      reinstallCurrentMode();
+    registerMenu("Universal Force Lite: list features", () => {
       console.table(getFeatureList());
     });
+    registerMenu(menuHostLabel(), () => {
+      runMenuAction(() => {
+        if (hostAllowed()) {
+          removeAllowedHost(currentHost());
+          PAGE[GLOBAL_KEY]?.restore?.();
+        } else {
+          addAllowedHost(currentHost());
+        }
+        reinstallCurrentMode();
+      });
+    });
+    registerMenu("Universal Force Lite: list allowlist", () => {
+      console.table(getAllowlist().map((host) => ({ host })));
+    });
+
+    for (const modeName of Object.keys(MODES)) {
+      registerMenu(menuModeLabel(modeName), () => {
+        runMenuAction(() => {
+          setModeName(modeName);
+          install(modeName);
+        });
+      });
+    }
+
+    for (const feature of getFeatureList()) {
+      registerMenu(menuFeatureLabel(feature), () => {
+        runMenuAction(() => {
+          applyFeatureOverride(feature.name, !feature.enabled);
+          reinstallCurrentMode();
+          console.table(getFeatureList());
+        });
+      });
+    }
+
+    registerMenu("Universal Force Lite: reset feature overrides", () => {
+      runMenuAction(() => {
+        clearAllFeatureOverrides();
+        reinstallCurrentMode();
+        console.table(getFeatureList());
+      });
+    });
   }
 
-  registerMenu("Universal Force Lite: reset feature overrides", () => {
-    clearAllFeatureOverrides();
-    reinstallCurrentMode();
-    console.table(getFeatureList());
-  });
+  installPanel();
+  install();
+  registerMenus();
 })();
