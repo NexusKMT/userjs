@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      3.0.1
+// @version      3.0.2
 // @description  Kill useless page effects (animations, blur/filter, Web Animations API loops, decorative canvas, decorative requestAnimationFrame loops). Toggle each feature from the Tampermonkey menu.
 // @match        http://*/*
 // @match        https://*/*
@@ -27,7 +27,7 @@
   const BG_CANVAS_CLASS = "__ufl-bg-canvas";
   const STORAGE_PREFIX = "__ufl:";
   const LOG_PREFIX = "[Disable Page Jank]";
-  const VERSION = "3.0.1";
+  const VERSION = "3.0.2";
 
   // Each feature is one Tampermonkey menu toggle. State is global (all sites).
   const FEATURES = {
@@ -122,12 +122,11 @@
         html.${ROOT_CLASS} *,
         html.${ROOT_CLASS} *::before,
         html.${ROOT_CLASS} *::after {
-          animation-name: none !important;
-          animation-duration: 0.001ms !important;
-          animation-delay: 0s !important;
+          animation-duration: 0.01ms !important;
           animation-iteration-count: 1 !important;
-          transition-property: none !important;
-          transition-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0.01ms !important;
+          transition-delay: 0s !important;
           scroll-behavior: auto !important;
         }
       `);
@@ -176,12 +175,11 @@
     if (settings.cssMotion) {
       parts.push(`
         *, *::before, *::after {
-          animation-name: none !important;
-          animation-duration: 0.001ms !important;
-          animation-delay: 0s !important;
+          animation-duration: 0.01ms !important;
           animation-iteration-count: 1 !important;
-          transition-property: none !important;
-          transition-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0.01ms !important;
+          transition-delay: 0s !important;
           scroll-behavior: auto !important;
         }
       `);
