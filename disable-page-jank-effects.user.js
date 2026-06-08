@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      3.0.2
-// @description  Kill useless page effects (animations, blur/filter, Web Animations API loops, decorative canvas, decorative requestAnimationFrame loops). Toggle each feature from the Tampermonkey menu.
+// @version      3.1.0
+// @description  Kill page jank — primarily heavy blur / backdrop-filter, plus CSS animations, Web Animations API loops, and decorative canvas. Toggle each from the Tampermonkey menu.
 // @match        http://*/*
 // @match        https://*/*
 // @run-at       document-start
@@ -27,16 +27,17 @@
   const BG_CANVAS_CLASS = "__ufl-bg-canvas";
   const STORAGE_PREFIX = "__ufl:";
   const LOG_PREFIX = "[Disable Page Jank]";
-  const VERSION = "3.0.2";
+  const VERSION = "3.1.0";
 
   // Each feature is one Tampermonkey menu toggle. State is global (all sites).
+  // visualEffects (blur/backdrop-filter) is the flagship: it has the biggest
+  // measured impact on smoothness, so it leads the list and defaults on.
   const FEATURES = {
-    cssMotion: { label: "CSS motion", default: true },
     visualEffects: { label: "Blur/filter effects", default: true },
+    cssMotion: { label: "CSS motion", default: true },
     webAnimations: { label: "Web Animations API", default: true },
     mediaPreferences: { label: "Reduced media prefs", default: true },
-    hideDecorativeCanvas: { label: "Hide decorative canvas", default: false },
-    blockDecorativeRAF: { label: "Block decorative RAF", default: false }
+    hideDecorativeCanvas: { label: "Hide decorative canvas", default: false }
   };
 
   const FEATURE_ORDER = Object.keys(FEATURES);
@@ -111,11 +112,38 @@
   }
 
   // ---------------------------------------------------------------------------
-  // CSS overrides (cssMotion / visualEffects / hideDecorativeCanvas)
+  // CSS overrides (visualEffects / cssMotion / hideDecorativeCanvas)
   // ---------------------------------------------------------------------------
 
   function buildCssText(settings) {
     const parts = [];
+
+    // Flagship: kill blur / backdrop-filter / filter everywhere, including
+    // pseudo-elements and the top-layer ::backdrop (dialog / fullscreen).
+    if (settings.visualEffects) {
+      parts.push(`
+        html.${ROOT_CLASS} *,
+        html.${ROOT_CLASS} *::before,
+        html.${ROOT_CLASS} *::after,
+        html.${ROOT_CLASS} *::backdrop {
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+          filter: none !important;
+        }
+
+        html.${ROOT_CLASS} [class*="blur"],
+        html.${ROOT_CLASS} [class*="glass"],
+        html.${ROOT_CLASS} [class*="backdrop"],
+        html.${ROOT_CLASS} [style*="backdrop-filter"],
+        html.${ROOT_CLASS} [style*="-webkit-backdrop-filter"],
+        html.${ROOT_CLASS} [style*="filter: blur"],
+        html.${ROOT_CLASS} [style*="filter:blur"] {
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+          filter: none !important;
+        }
+      `);
+    }
 
     if (settings.cssMotion) {
       parts.push(`
@@ -128,29 +156,6 @@
           transition-duration: 0.01ms !important;
           transition-delay: 0s !important;
           scroll-behavior: auto !important;
-        }
-      `);
-    }
-
-    if (settings.visualEffects) {
-      parts.push(`
-        html.${ROOT_CLASS} *,
-        html.${ROOT_CLASS} *::before,
-        html.${ROOT_CLASS} *::after {
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          filter: none !important;
-        }
-
-        html.${ROOT_CLASS} [class*="blur"],
-        html.${ROOT_CLASS} [class*="glass"],
-        html.${ROOT_CLASS} [class*="backdrop"],
-        html.${ROOT_CLASS} [style*="backdrop-filter"],
-        html.${ROOT_CLASS} [style*="-webkit-backdrop-filter"],
-        html.${ROOT_CLASS} [style*="filter: blur"] {
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          filter: none !important;
         }
       `);
     }
@@ -172,6 +177,16 @@
   function buildShadowCssText(settings) {
     const parts = [];
 
+    if (settings.visualEffects) {
+      parts.push(`
+        *, *::before, *::after, *::backdrop {
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+          filter: none !important;
+        }
+      `);
+    }
+
     if (settings.cssMotion) {
       parts.push(`
         *, *::before, *::after {
@@ -185,21 +200,11 @@
       `);
     }
 
-    if (settings.visualEffects) {
-      parts.push(`
-        *, *::before, *::after {
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          filter: none !important;
-        }
-      `);
-    }
-
     return parts.join("\n");
   }
 
   // ---------------------------------------------------------------------------
-  // Canvas classification (used by hideDecorativeCanvas / blockDecorativeRAF)
+  // Canvas classification (used by hideDecorativeCanvas)
   // ---------------------------------------------------------------------------
 
   function hasChartSignal(text) {
@@ -340,9 +345,7 @@
       hiddenCanvas: 0,
       webAnimationsFinished: 0,
       webAnimationsCanceled: 0,
-      webAnimationsFailed: 0,
-      blockedDecorativeRAF: 0,
-      rafFakeId: 0
+      webAnimationsFailed: 0
     };
 
     const wantsStyle = settings.cssMotion || settings.visualEffects || settings.hideDecorativeCanvas;
@@ -544,27 +547,6 @@
       return count;
     }
 
-    // ---- decorative requestAnimationFrame loops ----
-
-    function patchRAF() {
-      if (!settings.blockDecorativeRAF || !native.requestAnimationFrame) return;
-
-      PAGE.requestAnimationFrame = function uflRAF(callback) {
-        const callbackName = (callback && callback.name) || "";
-        const stack = String(new Error().stack || "");
-        const signal = `${callbackName}\n${stack}`;
-
-        if (hasDecorativeSignal(signal) && !hasChartSignal(signal)) {
-          state.blockedDecorativeRAF += 1;
-          // Negative fake handle: never scheduled, and cancelAnimationFrame() ignores it.
-          state.rafFakeId -= 1;
-          return state.rafFakeId;
-        }
-
-        return native.requestAnimationFrame.call(PAGE, callback);
-      };
-    }
-
     // ---- re-apply on DOM growth ----
 
     const scheduleApply = (() => {
@@ -596,8 +578,7 @@
         webAnimationsFinished: state.webAnimationsFinished,
         webAnimationsCanceled: state.webAnimationsCanceled,
         webAnimationsFailed: state.webAnimationsFailed,
-        remainingWebAnimations: getWebAnimations().filter(shouldReduceWebAnimation).length,
-        blockedDecorativeRAF: state.blockedDecorativeRAF
+        remainingWebAnimations: getWebAnimations().filter(shouldReduceWebAnimation).length
       };
     }
 
@@ -605,7 +586,6 @@
     patchMediaPreferences();
     patchWebAnimations();
     patchAttachShadow();
-    patchRAF();
     ensureStyle();
     reduceExistingWebAnimations();
 
