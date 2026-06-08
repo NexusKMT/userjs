@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      3.1.0
+// @version      3.1.1
 // @description  Kill page jank — primarily heavy blur / backdrop-filter, plus CSS animations, Web Animations API loops, and decorative canvas. Toggle each from the Tampermonkey menu.
 // @match        http://*/*
 // @match        https://*/*
@@ -27,16 +27,17 @@
   const BG_CANVAS_CLASS = "__ufl-bg-canvas";
   const STORAGE_PREFIX = "__ufl:";
   const LOG_PREFIX = "[Disable Page Jank]";
-  const VERSION = "3.1.0";
+  const VERSION = "3.1.1";
 
   // Each feature is one Tampermonkey menu toggle. State is global (all sites).
-  // visualEffects (blur/backdrop-filter) is the flagship: it has the biggest
-  // measured impact on smoothness, so it leads the list and defaults on.
+  // visualEffects (blur/backdrop-filter) is the flagship — the biggest measured
+  // smoothness lever — so it leads the list and is the ONLY feature on by
+  // default; the rest are opt-in.
   const FEATURES = {
     visualEffects: { label: "Blur/filter effects", default: true },
-    cssMotion: { label: "CSS motion", default: true },
-    webAnimations: { label: "Web Animations API", default: true },
-    mediaPreferences: { label: "Reduced media prefs", default: true },
+    cssMotion: { label: "CSS motion", default: false },
+    webAnimations: { label: "Web Animations API", default: false },
+    mediaPreferences: { label: "Reduced media prefs", default: false },
     hideDecorativeCanvas: { label: "Hide decorative canvas", default: false }
   };
 
