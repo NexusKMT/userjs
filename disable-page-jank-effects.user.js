@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      2.0.0
-// @description  Opt-in userscript that disables costly page animations, blur effects, decorative canvas, and RAF loops on allowlisted sites.
+// @version      2.1.0
+// @description  Opt-in userscript that disables costly page animations, Web Animations API effects, blur effects, decorative canvas, and RAF loops on allowlisted sites.
 // @match        http://*/*
 // @match        https://*/*
 // @run-at       document-start
@@ -59,6 +59,10 @@
       label: "Reduced media prefs",
       description: "Make JS matchMedia report reduced motion, transparency, and data preferences."
     },
+    webAnimations: {
+      label: "Web Animations API",
+      description: "Finish finite Element.animate animations and cancel infinite Web Animations API loops."
+    },
     hideDecorativeCanvas: {
       label: "Hide decorative canvas",
       description: "Hide likely background, particle, or full-bleed decorative canvases while preserving chart-like canvases."
@@ -92,6 +96,7 @@
         contentVisibility: false,
         shadowDomStyles: true,
         mediaPreferences: true,
+        webAnimations: true,
         hideDecorativeCanvas: false,
         blockDecorativeRAF: false,
         throttleChartRAF: false,
@@ -106,6 +111,7 @@
         contentVisibility: true,
         shadowDomStyles: true,
         mediaPreferences: true,
+        webAnimations: true,
         hideDecorativeCanvas: false,
         blockDecorativeRAF: false,
         throttleChartRAF: true,
@@ -124,6 +130,7 @@
         contentVisibility: true,
         shadowDomStyles: true,
         mediaPreferences: true,
+        webAnimations: true,
         hideDecorativeCanvas: true,
         blockDecorativeRAF: true,
         throttleChartRAF: true,
@@ -670,6 +677,11 @@
       cancelAnimationFrame: PAGE.cancelAnimationFrame,
       matchMedia: PAGE.matchMedia,
       attachShadow: PAGE.Element.prototype.attachShadow,
+      elementAnimate: PAGE.Element.prototype.animate,
+      elementAnimateHadOwn: Object.prototype.hasOwnProperty.call(PAGE.Element.prototype, "animate"),
+      documentGetAnimations: DOC.getAnimations,
+      startViewTransition: DOC.startViewTransition,
+      startViewTransitionHadOwn: Object.prototype.hasOwnProperty.call(DOC, "startViewTransition"),
       setTimeout: PAGE.setTimeout,
       clearTimeout: PAGE.clearTimeout
     };
@@ -678,6 +690,9 @@
       settings,
       appliedAt: new Date().toISOString(),
       hiddenCanvas: 0,
+      webAnimationsFinished: 0,
+      webAnimationsCanceled: 0,
+      webAnimationsFailed: 0,
       blockedDecorativeRAF: 0,
       throttledChartRAF: 0,
       throttledGenericRAF: 0,
@@ -745,6 +760,144 @@
 
         return native.matchMedia.call(PAGE, query);
       };
+    }
+
+    function webAnimationTarget(animation) {
+      try {
+        return animation?.effect?.target || null;
+      } catch {
+        return null;
+      }
+    }
+
+    function webAnimationEndTime(animation) {
+      try {
+        const timing = animation?.effect?.getComputedTiming?.();
+        if (timing && Number.isFinite(Number(timing.endTime))) {
+          return Number(timing.endTime);
+        }
+
+        if (timing && timing.endTime === Infinity) {
+          return Infinity;
+        }
+      } catch {
+        // Some browser/polyfill AnimationEffect objects throw while detached.
+      }
+
+      try {
+        const timing = animation?.effect?.getTiming?.();
+        const duration = Number(timing?.duration) || 0;
+        const iterations = timing?.iterations;
+        if (iterations === Infinity) return Infinity;
+        return duration * (Number(iterations) || 1);
+      } catch {
+        return Infinity;
+      }
+    }
+
+    function shouldReduceWebAnimation(animation) {
+      if (!settings.features.webAnimations || !animation?.effect) return false;
+      if (animation.playbackRate === 0) return false;
+
+      const stateName = String(animation.playState || "");
+      if (stateName === "idle" || stateName === "finished") return false;
+
+      const target = webAnimationTarget(animation);
+      if (target?.closest?.("[data-ufl-keep-animation]")) return false;
+
+      return true;
+    }
+
+    function reduceWebAnimation(animation) {
+      if (!shouldReduceWebAnimation(animation)) return false;
+
+      try {
+        if (Number.isFinite(webAnimationEndTime(animation))) {
+          animation.finish();
+          state.webAnimationsFinished += 1;
+          return true;
+        }
+
+        animation.cancel();
+        state.webAnimationsCanceled += 1;
+        return true;
+      } catch {
+        try {
+          animation.cancel();
+          state.webAnimationsCanceled += 1;
+          return true;
+        } catch {
+          state.webAnimationsFailed += 1;
+          return false;
+        }
+      }
+    }
+
+    function getWebAnimations() {
+      if (!settings.features.webAnimations || typeof native.documentGetAnimations !== "function") {
+        return [];
+      }
+
+      try {
+        return Array.from(native.documentGetAnimations.call(DOC, { subtree: true }) || []);
+      } catch {
+        try {
+          return Array.from(native.documentGetAnimations.call(DOC) || []);
+        } catch {
+          return [];
+        }
+      }
+    }
+
+    function reduceExistingWebAnimations() {
+      let count = 0;
+      for (const animation of getWebAnimations()) {
+        if (reduceWebAnimation(animation)) count += 1;
+      }
+      return count;
+    }
+
+    function remainingReducibleWebAnimationCount() {
+      let count = 0;
+      for (const animation of getWebAnimations()) {
+        if (shouldReduceWebAnimation(animation)) count += 1;
+      }
+      return count;
+    }
+
+    function patchWebAnimations() {
+      if (!settings.features.webAnimations) return;
+
+      if (typeof native.elementAnimate === "function") {
+        PAGE.Element.prototype.animate = function universalForceLiteAnimate() {
+          const animation = native.elementAnimate.apply(this, arguments);
+          reduceWebAnimation(animation);
+          return animation;
+        };
+      }
+
+      if (typeof native.startViewTransition === "function") {
+        DOC.startViewTransition = function universalForceLiteViewTransition(callback) {
+          const transition = native.startViewTransition.call(DOC, callback);
+          native.requestAnimationFrame?.call(PAGE, reduceExistingWebAnimations);
+          return transition;
+        };
+      }
+    }
+
+    function restoreProperty(target, name, value, hadOwn) {
+      if (!target) return;
+
+      if (hadOwn) {
+        target[name] = value;
+        return;
+      }
+
+      try {
+        delete target[name];
+      } catch {
+        target[name] = value;
+      }
     }
 
     function markDecorativeCanvases() {
@@ -858,6 +1011,7 @@
         timer = native.setTimeout.call(PAGE, () => {
           timer = 0;
           ensureStyle();
+          reduceExistingWebAnimations();
           markDecorativeCanvases();
         }, 150);
       };
@@ -898,6 +1052,11 @@
         allowlist: getAllowlist(),
         appliedAt: state.appliedAt,
         hiddenCanvas: state.hiddenCanvas,
+        webAnimationsFinished: state.webAnimationsFinished,
+        webAnimationsCanceled: state.webAnimationsCanceled,
+        webAnimationsFailed: state.webAnimationsFailed,
+        documentWebAnimations: getWebAnimations().length,
+        remainingWebAnimations: remainingReducibleWebAnimationCount(),
         blockedDecorativeRAF: state.blockedDecorativeRAF,
         throttledChartRAF: state.throttledChartRAF,
         throttledGenericRAF: state.throttledGenericRAF,
@@ -921,6 +1080,18 @@
       PAGE.cancelAnimationFrame = native.cancelAnimationFrame;
       PAGE.matchMedia = native.matchMedia;
       PAGE.Element.prototype.attachShadow = native.attachShadow;
+      restoreProperty(
+        PAGE.Element.prototype,
+        "animate",
+        native.elementAnimate,
+        native.elementAnimateHadOwn
+      );
+      restoreProperty(
+        DOC,
+        "startViewTransition",
+        native.startViewTransition,
+        native.startViewTransitionHadOwn
+      );
 
       DOC.documentElement?.classList.remove(ROOT_CLASS);
       DOC.getElementById(STYLE_ID)?.remove();
@@ -952,22 +1123,26 @@
       restore,
       reapply() {
         ensureStyle();
+        reduceExistingWebAnimations();
         markDecorativeCanvases();
         return stats();
       }
     });
 
     PAGE[GLOBAL_KEY] = controller;
+    patchWebAnimations();
     ensureStyle();
     patchAttachShadow();
     patchMediaPreferences();
     patchRAF();
+    reduceExistingWebAnimations();
 
     if (DOC.readyState === "loading") {
       DOC.addEventListener(
         "DOMContentLoaded",
         () => {
           ensureStyle();
+          reduceExistingWebAnimations();
           markDecorativeCanvases();
           startObserver();
           console.info("[Universal Force Lite] enabled", stats());
@@ -975,6 +1150,7 @@
         { once: true }
       );
     } else {
+      reduceExistingWebAnimations();
       markDecorativeCanvases();
       startObserver();
       console.info("[Universal Force Lite] enabled", stats());
