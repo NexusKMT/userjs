@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      2.2.0
+// @version      2.3.0
 // @description  Opt-in userscript with a visible control panel that disables costly page animations, Web Animations API effects, blur effects, decorative canvas, and RAF loops on allowlisted sites.
 // @match        http://*/*
 // @match        https://*/*
@@ -338,9 +338,9 @@
 
     .ufl-feature {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: center;
+      grid-template-columns: 58px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
       padding: 9px 0;
       border-top: 1px solid rgba(15, 23, 42, 0.08);
     }
@@ -368,10 +368,43 @@
       font-size: 12px;
     }
 
+    .ufl-feature[data-enabled="false"] .ufl-feature-name,
+    .ufl-feature[data-enabled="false"] .ufl-feature-desc {
+      opacity: 0.72;
+    }
+
+    .ufl-feature-toggle {
+      width: 58px;
+      min-height: 30px;
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 820;
+      line-height: 1;
+      padding: 0 8px;
+      text-align: center;
+      user-select: none;
+    }
+
+    .ufl-feature-toggle[data-state="on"] {
+      background: #047857;
+      border-color: #047857;
+      color: #ffffff;
+    }
+
+    .ufl-feature-toggle[data-state="off"] {
+      background: #e2e8f0;
+      border-color: #cbd5e1;
+      color: #334155;
+    }
+
     .ufl-feature-actions {
       display: flex;
       align-items: center;
+      justify-content: flex-end;
       gap: 8px;
+      min-width: 0;
     }
 
     .ufl-badge {
@@ -396,10 +429,21 @@
     }
 
     .ufl-small-button:hover,
+    .ufl-feature-toggle:hover,
     .ufl-mode:hover,
     .ufl-close:hover {
       border-color: rgba(15, 23, 42, 0.28);
       background: #f1f5f9;
+    }
+
+    .ufl-feature-toggle[data-state="on"]:hover {
+      background: #059669;
+      border-color: #059669;
+    }
+
+    .ufl-feature-toggle[data-state="off"]:hover {
+      background: #cbd5e1;
+      border-color: #94a3b8;
     }
 
     .ufl-number-row {
@@ -500,6 +544,7 @@
 
       .ufl-close,
       .ufl-small-button,
+      .ufl-feature-toggle,
       .ufl-mode,
       .ufl-number-row input,
       .ufl-stat {
@@ -509,10 +554,33 @@
       }
 
       .ufl-small-button:hover,
+      .ufl-feature-toggle:hover,
       .ufl-mode:hover,
       .ufl-close:hover {
         background: #1e293b;
         border-color: rgba(226, 232, 240, 0.3);
+      }
+
+      .ufl-feature-toggle[data-state="on"] {
+        background: #059669;
+        border-color: #059669;
+        color: #ffffff;
+      }
+
+      .ufl-feature-toggle[data-state="on"]:hover {
+        background: #10b981;
+        border-color: #10b981;
+      }
+
+      .ufl-feature-toggle[data-state="off"] {
+        background: #334155;
+        border-color: #475569;
+        color: #cbd5e1;
+      }
+
+      .ufl-feature-toggle[data-state="off"]:hover {
+        background: #475569;
+        border-color: #64748b;
       }
 
       .ufl-mode[aria-pressed="true"] {
@@ -1064,13 +1132,23 @@
   function createFeatureRows(data) {
     return data.features.map((feature) => {
       const isOverride = feature.override !== null;
-      const actions = [
-        createSwitch(feature.enabled, `${feature.label} toggle`, (checked) => {
-          applyPanelChange(() => {
-            applyFeatureOverride(feature.name, checked);
-          });
-        })
-      ];
+      const toggle = uiEl(
+        "button",
+        {
+          type: "button",
+          className: "ufl-feature-toggle",
+          "data-state": feature.enabled ? "on" : "off",
+          "aria-pressed": String(feature.enabled),
+          "aria-label": `${feature.label}: ${feature.enabled ? "on" : "off"}`,
+          title: `${feature.enabled ? "Disable" : "Enable"} ${feature.label}`,
+          onclick: () =>
+            applyPanelChange(() => {
+              applyFeatureOverride(feature.name, !feature.enabled);
+            })
+        },
+        feature.enabled ? "ON" : "OFF"
+      );
+      const actions = [];
 
       if (isOverride) {
         actions.push(
@@ -1089,7 +1167,14 @@
         );
       }
 
-      return uiEl("div", { className: "ufl-feature", dataset: { feature: feature.name } }, [
+      return uiEl("div", {
+        className: "ufl-feature",
+        dataset: {
+          feature: feature.name,
+          enabled: String(feature.enabled)
+        }
+      }, [
+        toggle,
         uiEl("div", {}, [
           uiEl("div", { className: "ufl-feature-name" }, [
             feature.label,
