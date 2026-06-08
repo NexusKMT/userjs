@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      3.0.0
+// @version      3.0.1
 // @description  Kill useless page effects (animations, blur/filter, Web Animations API loops, decorative canvas, decorative requestAnimationFrame loops). Toggle each feature from the Tampermonkey menu.
 // @match        http://*/*
 // @match        https://*/*
@@ -27,16 +27,16 @@
   const BG_CANVAS_CLASS = "__ufl-bg-canvas";
   const STORAGE_PREFIX = "__ufl:";
   const LOG_PREFIX = "[Disable Page Jank]";
-  const VERSION = "3.0.0";
+  const VERSION = "3.0.1";
 
   // Each feature is one Tampermonkey menu toggle. State is global (all sites).
   const FEATURES = {
-    cssMotion: { label: "CSS 动画/过渡", default: true },
-    visualEffects: { label: "模糊/滤镜", default: true },
-    webAnimations: { label: "Web 动画", default: true },
-    mediaPreferences: { label: "减少动效偏好", default: true },
-    hideDecorativeCanvas: { label: "隐藏装饰 canvas", default: false },
-    blockDecorativeRAF: { label: "屏蔽后台动画循环", default: false }
+    cssMotion: { label: "CSS motion", default: true },
+    visualEffects: { label: "Blur/filter effects", default: true },
+    webAnimations: { label: "Web Animations API", default: true },
+    mediaPreferences: { label: "Reduced media prefs", default: true },
+    hideDecorativeCanvas: { label: "Hide decorative canvas", default: false },
+    blockDecorativeRAF: { label: "Block decorative RAF", default: false }
   };
 
   const FEATURE_ORDER = Object.keys(FEATURES);
@@ -659,8 +659,7 @@
     for (const name of FEATURE_ORDER) {
       const enabled = getFeature(name);
       const mark = enabled ? "✅" : "⬜";
-      const action = enabled ? "点击关闭" : "点击开启";
-      const label = `${mark} ${FEATURES[name].label} — ${action}`;
+      const label = `${mark} ${FEATURES[name].label}`;
 
       GM_registerMenuCommand(label, () => {
         toggleFeature(name);
