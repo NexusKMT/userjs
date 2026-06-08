@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      2.1.0
-// @description  Opt-in userscript that disables costly page animations, Web Animations API effects, blur effects, decorative canvas, and RAF loops on allowlisted sites.
+// @version      2.2.0
+// @description  Opt-in userscript with a visible control panel that disables costly page animations, Web Animations API effects, blur effects, decorative canvas, and RAF loops on allowlisted sites.
 // @match        http://*/*
 // @match        https://*/*
 // @run-at       document-start
@@ -31,6 +31,8 @@
   const MODE_KEY = `${STORAGE_PREFIX}mode`;
   const ALLOWLIST_KEY = `${STORAGE_PREFIX}allowlist`;
   const HOST_SETTINGS_PREFIX = `${STORAGE_PREFIX}host:`;
+  const PANEL_ID = "__universalForceLitePanel";
+  const PANEL_OPEN_KEY = `${STORAGE_PREFIX}panelOpen`;
 
   const DEFAULT_MODE = "conservative";
   const DEFAULT_VALUES = {
@@ -82,6 +84,457 @@
   };
 
   const FEATURE_ORDER = Object.keys(FEATURES);
+
+  const PANEL_CSS = `
+    :host {
+      all: initial;
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 2147483647;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      line-height: 1.35;
+      pointer-events: none;
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: inherit;
+      letter-spacing: 0;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .ufl-shell {
+      position: relative;
+      display: flex;
+      justify-content: flex-end;
+      pointer-events: none;
+    }
+
+    .ufl-fab,
+    .ufl-panel {
+      pointer-events: auto;
+    }
+
+    .ufl-fab {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 88px;
+      height: 42px;
+      border: 1px solid rgba(15, 23, 42, 0.18);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #0f172a;
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.2);
+      cursor: pointer;
+      font-weight: 750;
+      padding: 0 12px;
+      user-select: none;
+    }
+
+    .ufl-fab[data-state="active"] {
+      background: #047857;
+      border-color: #047857;
+      color: #ffffff;
+    }
+
+    .ufl-fab[data-state="waiting"] {
+      background: #b45309;
+      border-color: #b45309;
+      color: #ffffff;
+    }
+
+    .ufl-fab[data-state="off"] {
+      background: #334155;
+      border-color: #334155;
+      color: #ffffff;
+    }
+
+    .ufl-panel {
+      position: absolute;
+      right: 0;
+      bottom: 52px;
+      width: min(372px, calc(100vw - 32px));
+      max-height: min(760px, calc(100vh - 88px));
+      overflow: auto;
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #0f172a;
+      box-shadow: 0 22px 70px rgba(15, 23, 42, 0.28);
+    }
+
+    .ufl-header,
+    .ufl-section {
+      border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+    }
+
+    .ufl-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 14px;
+    }
+
+    .ufl-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 780;
+      color: #0f172a;
+    }
+
+    .ufl-subtitle {
+      margin-top: 4px;
+      color: #475569;
+      overflow-wrap: anywhere;
+    }
+
+    .ufl-close,
+    .ufl-small-button,
+    .ufl-mode {
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      background: #ffffff;
+      color: #0f172a;
+      cursor: pointer;
+    }
+
+    .ufl-close {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .ufl-section {
+      padding: 12px 14px;
+    }
+
+    .ufl-section:last-child {
+      border-bottom: 0;
+    }
+
+    .ufl-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .ufl-row + .ufl-row {
+      margin-top: 10px;
+    }
+
+    .ufl-section-title {
+      margin: 0 0 9px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 760;
+      text-transform: uppercase;
+    }
+
+    .ufl-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 64px;
+      height: 26px;
+      border-radius: 999px;
+      font-weight: 780;
+      color: #ffffff;
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+
+    .ufl-pill[data-state="active"] {
+      background: #047857;
+    }
+
+    .ufl-pill[data-state="waiting"] {
+      background: #b45309;
+    }
+
+    .ufl-pill[data-state="off"] {
+      background: #334155;
+    }
+
+    .ufl-reason {
+      color: #475569;
+      overflow-wrap: anywhere;
+    }
+
+    .ufl-switch {
+      position: relative;
+      display: inline-flex;
+      width: 44px;
+      height: 24px;
+      flex: 0 0 auto;
+      cursor: pointer;
+    }
+
+    .ufl-switch input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .ufl-slider {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: #cbd5e1;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+    }
+
+    .ufl-slider::before {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 2px;
+      top: 2px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+    }
+
+    .ufl-switch input:checked + .ufl-slider {
+      background: #047857;
+      border-color: #047857;
+    }
+
+    .ufl-switch input:checked + .ufl-slider::before {
+      transform: translateX(20px);
+    }
+
+    .ufl-segment {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .ufl-mode {
+      min-height: 32px;
+      border-radius: 8px;
+      padding: 5px 8px;
+      font-weight: 680;
+      color: #334155;
+    }
+
+    .ufl-mode[aria-pressed="true"] {
+      background: #0f172a;
+      border-color: #0f172a;
+      color: #ffffff;
+    }
+
+    .ufl-feature {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 9px 0;
+      border-top: 1px solid rgba(15, 23, 42, 0.08);
+    }
+
+    .ufl-feature:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .ufl-feature:last-child {
+      padding-bottom: 0;
+    }
+
+    .ufl-feature-name {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #0f172a;
+      font-weight: 720;
+    }
+
+    .ufl-feature-desc {
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .ufl-feature-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ufl-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 18px;
+      border-radius: 999px;
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 760;
+    }
+
+    .ufl-small-button {
+      min-height: 28px;
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    .ufl-small-button:hover,
+    .ufl-mode:hover,
+    .ufl-close:hover {
+      border-color: rgba(15, 23, 42, 0.28);
+      background: #f1f5f9;
+    }
+
+    .ufl-number-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 86px auto;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+    }
+
+    .ufl-number-row:first-child {
+      margin-top: 0;
+    }
+
+    .ufl-number-row input {
+      width: 86px;
+      min-height: 30px;
+      border: 1px solid rgba(15, 23, 42, 0.16);
+      border-radius: 8px;
+      background: #ffffff;
+      color: #0f172a;
+      padding: 4px 7px;
+    }
+
+    .ufl-stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .ufl-stat {
+      min-width: 0;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 8px;
+    }
+
+    .ufl-stat-value {
+      color: #0f172a;
+      font-weight: 780;
+    }
+
+    .ufl-stat-label {
+      margin-top: 2px;
+      color: #64748b;
+      font-size: 11px;
+    }
+
+    @media (max-width: 420px) {
+      :host {
+        right: 10px;
+        bottom: 10px;
+      }
+
+      .ufl-panel {
+        width: calc(100vw - 20px);
+        max-height: calc(100vh - 72px);
+      }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :host {
+        color: #e2e8f0;
+        color-scheme: dark;
+      }
+
+      .ufl-fab,
+      .ufl-panel {
+        border-color: rgba(226, 232, 240, 0.16);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.48);
+      }
+
+      .ufl-panel {
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+
+      .ufl-header,
+      .ufl-section,
+      .ufl-feature {
+        border-color: rgba(226, 232, 240, 0.12);
+      }
+
+      .ufl-title,
+      .ufl-feature-name,
+      .ufl-stat-value {
+        color: #f8fafc;
+      }
+
+      .ufl-subtitle,
+      .ufl-reason,
+      .ufl-section-title,
+      .ufl-feature-desc,
+      .ufl-stat-label {
+        color: #94a3b8;
+      }
+
+      .ufl-close,
+      .ufl-small-button,
+      .ufl-mode,
+      .ufl-number-row input,
+      .ufl-stat {
+        background: #111827;
+        border-color: rgba(226, 232, 240, 0.16);
+        color: #e2e8f0;
+      }
+
+      .ufl-small-button:hover,
+      .ufl-mode:hover,
+      .ufl-close:hover {
+        background: #1e293b;
+        border-color: rgba(226, 232, 240, 0.3);
+      }
+
+      .ufl-mode[aria-pressed="true"] {
+        background: #e2e8f0;
+        border-color: #e2e8f0;
+        color: #0f172a;
+      }
+
+      .ufl-slider {
+        background: #475569;
+        border-color: rgba(226, 232, 240, 0.16);
+      }
+
+      .ufl-badge {
+        background: rgba(14, 165, 233, 0.18);
+        color: #7dd3fc;
+      }
+    }
+  `;
+
+  let panelOpen = false;
+  let panelRefreshTimer = 0;
 
   const MODES = {
     off: {
@@ -394,6 +847,17 @@
     return getEffectiveSettings(getModeName(), host);
   }
 
+  function clearFrameMsOverride(name, host = currentHost()) {
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_VALUES, name)) {
+      throw new Error(`Unknown frame setting: ${name}`);
+    }
+
+    const settings = getHostSettings(host);
+    delete settings.values[name];
+    writeHostSettings(settings, host);
+    return getEffectiveSettings(getModeName(), host);
+  }
+
   function getFeatureList(modeName = getModeName(), host = currentHost()) {
     const effective = getEffectiveSettings(modeName, host);
     return FEATURE_ORDER.map((name) => ({
@@ -406,6 +870,493 @@
           : null,
       description: FEATURES[name].description
     }));
+  }
+
+  function isTopFrame() {
+    try {
+      return PAGE.top === PAGE.self;
+    } catch {
+      return false;
+    }
+  }
+
+  function appendChildren(parent, children) {
+    for (const child of children.flat()) {
+      if (child === null || typeof child === "undefined" || child === false) continue;
+      if (typeof child === "string" || typeof child === "number") {
+        parent.appendChild(DOC.createTextNode(String(child)));
+      } else if (child && typeof child.nodeType === "number") {
+        parent.appendChild(child);
+      }
+    }
+
+    return parent;
+  }
+
+  function uiEl(tagName, attrs = {}, children = []) {
+    const node = DOC.createElement(tagName);
+
+    for (const [key, value] of Object.entries(attrs)) {
+      if (value === null || typeof value === "undefined" || value === false) continue;
+
+      if (key === "className") {
+        node.className = value;
+      } else if (key === "text") {
+        node.textContent = String(value);
+      } else if (key === "dataset" && value && typeof value === "object") {
+        for (const [dataKey, dataValue] of Object.entries(value)) {
+          node.dataset[dataKey] = String(dataValue);
+        }
+      } else if (key === "style" && value && typeof value === "object") {
+        Object.assign(node.style, value);
+      } else if (key.startsWith("on") && typeof value === "function") {
+        node.addEventListener(key.slice(2).toLowerCase(), value);
+      } else if (value === true) {
+        node.setAttribute(key, "");
+      } else {
+        node.setAttribute(key, String(value));
+      }
+    }
+
+    return appendChildren(node, Array.isArray(children) ? children : [children]);
+  }
+
+  function getPanelHost() {
+    return DOC.getElementById(PANEL_ID);
+  }
+
+  function getPanelSurface() {
+    const host = getPanelHost();
+    if (!host) return null;
+    return host.shadowRoot || host;
+  }
+
+  function replaceSurface(surface, children) {
+    while (surface.firstChild) {
+      surface.removeChild(surface.firstChild);
+    }
+
+    appendChildren(surface, children);
+  }
+
+  function statusForPanel(data) {
+    if (!data.disabled) {
+      return {
+        state: "active",
+        fab: "UFL ON",
+        label: "Active",
+        reason: "Optimizations are running on this page."
+      };
+    }
+
+    if (data.modeName === "off") {
+      return {
+        state: "off",
+        fab: "UFL OFF",
+        label: "Off",
+        reason: "Mode is off."
+      };
+    }
+
+    if (!data.allowed) {
+      return {
+        state: "waiting",
+        fab: "UFL WAIT",
+        label: "Waiting",
+        reason: "This host is not in the allowlist."
+      };
+    }
+
+    return {
+      state: "off",
+      fab: "UFL OFF",
+      label: "Off",
+      reason: data.reason || "No feature is currently active."
+    };
+  }
+
+  function getPanelData() {
+    const modeName = getModeName();
+    const host = currentHost();
+    const settings = getEffectiveSettings(modeName, host);
+    const allowed = hostAllowed(host);
+    let stats = null;
+
+    try {
+      stats = PAGE[GLOBAL_KEY]?.stats?.() || null;
+    } catch (error) {
+      console.warn("[Universal Force Lite] stats failed", error);
+    }
+
+    const disabled =
+      typeof stats?.disabled === "boolean"
+        ? stats.disabled
+        : modeName === "off" || !allowed || !anyFeatureEnabled(settings.features);
+    const reason = stats?.reason || (disabled ? disabledReason(modeName, settings) : "enabled");
+
+    return {
+      host,
+      modeName,
+      settings,
+      allowed,
+      stats,
+      disabled,
+      reason,
+      features: getFeatureList(modeName, host)
+    };
+  }
+
+  function createSwitch(checked, label, onChange) {
+    const input = uiEl("input", {
+      type: "checkbox",
+      "aria-label": label
+    });
+
+    input.checked = Boolean(checked);
+    input.addEventListener("change", () => onChange(input.checked));
+
+    return uiEl("label", { className: "ufl-switch" }, [
+      input,
+      uiEl("span", { className: "ufl-slider" })
+    ]);
+  }
+
+  function applyPanelChange(action) {
+    try {
+      const modeName = action?.() || getModeName();
+      install(modeName);
+    } catch (error) {
+      console.warn("[Universal Force Lite] panel action failed", error);
+    }
+
+    renderPanel();
+  }
+
+  function setPanelOpen(open) {
+    panelOpen = Boolean(open);
+    writeStoredValue(PANEL_OPEN_KEY, panelOpen);
+    renderPanel();
+  }
+
+  function createModeControls(data) {
+    return uiEl(
+      "div",
+      { className: "ufl-segment" },
+      Object.entries(MODES).map(([name, mode]) =>
+        uiEl(
+          "button",
+          {
+            type: "button",
+            className: "ufl-mode",
+            "aria-pressed": String(name === data.modeName),
+            onclick: () =>
+              applyPanelChange(() => {
+                setModeName(name);
+                return name;
+              })
+          },
+          mode.label
+        )
+      )
+    );
+  }
+
+  function createFeatureRows(data) {
+    return data.features.map((feature) => {
+      const isOverride = feature.override !== null;
+      const actions = [
+        createSwitch(feature.enabled, `${feature.label} toggle`, (checked) => {
+          applyPanelChange(() => {
+            applyFeatureOverride(feature.name, checked);
+          });
+        })
+      ];
+
+      if (isOverride) {
+        actions.push(
+          uiEl(
+            "button",
+            {
+              type: "button",
+              className: "ufl-small-button",
+              onclick: () =>
+                applyPanelChange(() => {
+                  clearFeatureOverride(feature.name);
+                })
+            },
+            "Default"
+          )
+        );
+      }
+
+      return uiEl("div", { className: "ufl-feature", dataset: { feature: feature.name } }, [
+        uiEl("div", {}, [
+          uiEl("div", { className: "ufl-feature-name" }, [
+            feature.label,
+            isOverride ? uiEl("span", { className: "ufl-badge" }, "Custom") : null
+          ]),
+          uiEl("div", { className: "ufl-feature-desc" }, feature.description)
+        ]),
+        uiEl("div", { className: "ufl-feature-actions" }, actions)
+      ]);
+    });
+  }
+
+  function createNumberControl(data, key, label) {
+    const value = data.settings.values[key];
+    const isOverride = Object.prototype.hasOwnProperty.call(data.settings.overrides.values, key);
+    const input = uiEl("input", {
+      type: "number",
+      min: "16",
+      max: "1000",
+      step: "1",
+      value: String(value),
+      "aria-label": label
+    });
+
+    input.addEventListener("change", () => {
+      applyPanelChange(() => {
+        applyFrameMsOverride(key, input.value);
+      });
+    });
+
+    return uiEl("div", { className: "ufl-number-row" }, [
+      uiEl("div", {}, [
+        uiEl("div", { className: "ufl-feature-name" }, [
+          label,
+          isOverride ? uiEl("span", { className: "ufl-badge" }, "Custom") : null
+        ])
+      ]),
+      input,
+      isOverride
+        ? uiEl(
+            "button",
+            {
+              type: "button",
+              className: "ufl-small-button",
+              onclick: () =>
+                applyPanelChange(() => {
+                  clearFrameMsOverride(key);
+                })
+            },
+            "Default"
+          )
+        : uiEl("span")
+    ]);
+  }
+
+  function statValue(value) {
+    if (value === null || typeof value === "undefined" || value === false) return "0";
+    return String(value);
+  }
+
+  function createStatsGrid(stats) {
+    const entries = [
+      ["WAAPI done", `${statValue(stats?.webAnimationsFinished)}/${statValue(stats?.webAnimationsCanceled)}`],
+      ["WAAPI left", statValue(stats?.remainingWebAnimations)],
+      ["Canvas hidden", statValue(stats?.hiddenCanvas)],
+      [
+        "RAF changed",
+        String(
+          Number(stats?.blockedDecorativeRAF || 0) +
+            Number(stats?.throttledChartRAF || 0) +
+            Number(stats?.throttledGenericRAF || 0)
+        )
+      ]
+    ];
+
+    return uiEl(
+      "div",
+      { className: "ufl-stats" },
+      entries.map(([label, value]) =>
+        uiEl("div", { className: "ufl-stat" }, [
+          uiEl("div", { className: "ufl-stat-value" }, value),
+          uiEl("div", { className: "ufl-stat-label" }, label)
+        ])
+      )
+    );
+  }
+
+  function renderPanel() {
+    if (!isTopFrame()) return;
+
+    const surface = getPanelSurface();
+    if (!surface) return;
+
+    const data = getPanelData();
+    const status = statusForPanel(data);
+    const style = uiEl("style", {}, PANEL_CSS);
+    const shell = uiEl("div", { className: "ufl-shell", "data-ufl-keep-animation": "" });
+    const fab = uiEl(
+      "button",
+      {
+        type: "button",
+        className: "ufl-fab",
+        "data-state": status.state,
+        "aria-expanded": String(panelOpen),
+        title: "Universal Force Lite",
+        onclick: () => setPanelOpen(!panelOpen)
+      },
+      status.fab
+    );
+
+    const children = [];
+
+    if (panelOpen) {
+      children.push(createPanelBody(data, status));
+    }
+
+    children.push(fab);
+    appendChildren(shell, children);
+    replaceSurface(surface, [style, shell]);
+  }
+
+  function createPanelBody(data, status) {
+    const stats = data.stats || {};
+
+    return uiEl("div", {
+      className: "ufl-panel",
+      role: "dialog",
+      "aria-label": "Universal Force Lite controls",
+      "data-ufl-keep-animation": ""
+    }, [
+      uiEl("div", { className: "ufl-header" }, [
+        uiEl("div", {}, [
+          uiEl("div", { className: "ufl-title" }, "Universal Force Lite"),
+          uiEl("div", { className: "ufl-subtitle" }, data.host || "unknown host")
+        ]),
+        uiEl(
+          "button",
+          {
+            type: "button",
+            className: "ufl-close",
+            "aria-label": "Close panel",
+            onclick: () => setPanelOpen(false)
+          },
+          "x"
+        )
+      ]),
+      uiEl("div", { className: "ufl-section" }, [
+        uiEl("div", { className: "ufl-row" }, [
+          uiEl("span", { className: "ufl-pill", "data-state": status.state }, status.label),
+          uiEl("span", { className: "ufl-reason" }, status.reason)
+        ]),
+        uiEl("div", { className: "ufl-row" }, [
+          uiEl("div", {}, [
+            uiEl("div", { className: "ufl-feature-name" }, "Allow this site"),
+            uiEl("div", { className: "ufl-feature-desc" }, "Optimization still runs only on allowed hosts.")
+          ]),
+          createSwitch(data.allowed, "Allow this site", (checked) => {
+            applyPanelChange(() => {
+              if (checked) addAllowedHost(data.host);
+              else removeAllowedHost(data.host);
+            });
+          })
+        ])
+      ]),
+      uiEl("div", { className: "ufl-section" }, [
+        uiEl("div", { className: "ufl-section-title" }, "Mode"),
+        createModeControls(data)
+      ]),
+      uiEl("div", { className: "ufl-section" }, [
+        uiEl("div", { className: "ufl-section-title" }, "Features"),
+        ...createFeatureRows(data),
+        uiEl("div", { className: "ufl-row", style: { marginTop: "12px" } }, [
+          uiEl(
+            "button",
+            {
+              type: "button",
+              className: "ufl-small-button",
+              onclick: () =>
+                applyPanelChange(() => {
+                  clearAllFeatureOverrides();
+                })
+            },
+            "Reset site overrides"
+          ),
+          uiEl(
+            "button",
+            {
+              type: "button",
+              className: "ufl-small-button",
+              onclick: () => {
+                PAGE[GLOBAL_KEY]?.reapply?.();
+                renderPanel();
+              }
+            },
+            "Reapply"
+          )
+        ])
+      ]),
+      uiEl("div", { className: "ufl-section" }, [
+        uiEl("div", { className: "ufl-section-title" }, "Frame throttle"),
+        createNumberControl(data, "chartFrameMs", "Chart RAF ms"),
+        createNumberControl(data, "genericFrameMs", "Generic RAF ms")
+      ]),
+      uiEl("div", { className: "ufl-section" }, [
+        uiEl("div", { className: "ufl-section-title" }, "Stats"),
+        createStatsGrid(stats),
+        uiEl("div", { className: "ufl-row", style: { marginTop: "10px" } }, [
+          uiEl(
+            "button",
+            {
+              type: "button",
+              className: "ufl-small-button",
+              onclick: () => {
+                console.table(PAGE[GLOBAL_KEY]?.stats?.() || {});
+                renderPanel();
+              }
+            },
+            "Log stats"
+          )
+        ])
+      ])
+    ]);
+  }
+
+  function queuePanelRefresh() {
+    if (!isTopFrame() || panelRefreshTimer) return;
+
+    const run = () => {
+      panelRefreshTimer = 0;
+      renderPanel();
+    };
+
+    if (typeof PAGE.setTimeout === "function") {
+      panelRefreshTimer = PAGE.setTimeout(run, 0);
+    } else {
+      run();
+    }
+  }
+
+  function installPanel() {
+    if (!isTopFrame()) return;
+
+    panelOpen = readStoredValue(PANEL_OPEN_KEY, false) === true;
+
+    const mount = () => {
+      if (!DOC.documentElement) return;
+
+      let host = getPanelHost();
+      if (!host) {
+        host = DOC.createElement("div");
+        host.id = PANEL_ID;
+        host.setAttribute("data-ufl-keep-animation", "");
+        DOC.documentElement.appendChild(host);
+
+        if (typeof host.attachShadow === "function") {
+          host.attachShadow({ mode: "open" });
+        }
+      }
+
+      renderPanel();
+    };
+
+    if (DOC.documentElement) {
+      mount();
+    } else {
+      DOC.addEventListener("DOMContentLoaded", mount, { once: true });
+    }
   }
 
   function buildCssText(settings) {
@@ -669,6 +1620,7 @@
       });
 
       PAGE[GLOBAL_KEY] = disabledController;
+      queuePanelRefresh();
       return disabledController;
     }
 
@@ -1130,6 +2082,7 @@
     });
 
     PAGE[GLOBAL_KEY] = controller;
+    queuePanelRefresh();
     patchWebAnimations();
     ensureStyle();
     patchAttachShadow();
@@ -1166,7 +2119,11 @@
       disabled: base.disabled,
       reason: base.reason,
       stats: base.stats,
-      restore: base.restore,
+      restore() {
+        const result = base.restore?.();
+        queuePanelRefresh();
+        return result;
+      },
       reapply() {
         if (typeof base.reapply === "function") return base.reapply();
         install(getModeName());
@@ -1223,6 +2180,11 @@
         applyFrameMsOverride(name, value);
         install(getModeName());
         return PAGE[GLOBAL_KEY]?.stats?.();
+      },
+      resetFrameMs(name) {
+        clearFrameMsOverride(name);
+        install(getModeName());
+        return PAGE[GLOBAL_KEY]?.stats?.();
       }
     };
   }
@@ -1237,6 +2199,7 @@
     install(getModeName());
   }
 
+  installPanel();
   install();
 
   registerMenu("Universal Force Lite: stats", () => {
