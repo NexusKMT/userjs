@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Disable Page Jank Effects
 // @namespace    local.universal.force-lite
-// @version      3.1.1
+// @version      3.2.0
 // @description  Kill page jank — primarily heavy blur / backdrop-filter, plus CSS animations, Web Animations API loops, and decorative canvas. Toggle each from the Tampermonkey menu.
-// @match        http://*/*
-// @match        https://*/*
+// @match        https://4router.net/*
+// @match        https://hub.linux.do/*
 // @run-at       document-start
 // @grant        GM_registerMenuCommand
 // @grant        GM_getValue
@@ -12,6 +12,8 @@
 // @grant        unsafeWindow
 // ==/UserScript==
 
+// Scope: runs only on the @match sites above. To add a site, add another
+// `// @match https://<host>/*` line in the header block.
 (function () {
   "use strict";
 
@@ -27,7 +29,7 @@
   const BG_CANVAS_CLASS = "__ufl-bg-canvas";
   const STORAGE_PREFIX = "__ufl:";
   const LOG_PREFIX = "[Disable Page Jank]";
-  const VERSION = "3.1.1";
+  const VERSION = "3.2.0";
 
   // Each feature is one Tampermonkey menu toggle. State is global (all sites).
   // visualEffects (blur/backdrop-filter) is the flagship — the biggest measured
